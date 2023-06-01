@@ -241,9 +241,12 @@ fn build() -> io::Result<()> {
     configure.arg("--disable-programs");
 
     macro_rules! enable {
-        ($conf:expr, $feat:expr, $name:expr) => {
+        ($conf:expr, $feat:expr, $name:expr $(, $flag:expr)*) => {
             if env::var(concat!("CARGO_FEATURE_", $feat)).is_ok() {
                 $conf.arg(concat!("--enable-", $name));
+                $(
+                    $conf.arg($flag);
+                 )*
             }
         };
     }
@@ -332,7 +335,8 @@ fn build() -> io::Result<()> {
 
     // other external libraries
     enable!(configure, "BUILD_LIB_DRM", "libdrm");
-    enable!(configure, "BUILD_NVENC", "nvenc");
+    // see https://github.com/FFmpeg/FFmpeg/blob/n6.0/configure#L3154
+    enable!(configure, "BUILD_NVENC", "nvenc", "--enable-ffnvcodec");
 
     // configure external protocols
     enable!(configure, "BUILD_LIB_SMBCLIENT", "libsmbclient");
