@@ -187,6 +187,18 @@ fn switch(configure: &mut Command, feature: &str, name: &str) {
     configure.arg(arg.to_string() + name);
 }
 
+fn link_lib(name: &str) {
+    if let Ok(probed) = pkg_config::Config::new().probe(name) {
+        for lpath in probed.link_paths {
+            println!("cargo:rustc-link-search=native={}", lpath.to_string_lossy());
+        }
+
+        for lib in probed.libs {
+            println!("cargo:rustc-link-lib={}", lib);
+        }
+    };
+}
+
 fn build() -> io::Result<()> {
     let source_dir = source();
 
@@ -247,6 +259,19 @@ fn build() -> io::Result<()> {
                 $(
                     $conf.arg($flag);
                  )*
+            }
+        };
+    }
+
+    macro_rules! enable_lib {
+        ($conf:expr, $feat:expr, $name:expr, $lib:literal $(, $flag:expr)*) => {
+            if env::var(concat!("CARGO_FEATURE_", $feat)).is_ok() {
+                $conf.arg(concat!("--enable-", $name));
+                $(
+                    $conf.arg($flag);
+                 )*
+
+                link_lib($lib);
             }
         };
     }
@@ -328,8 +353,8 @@ fn build() -> io::Result<()> {
     enable!(configure, "BUILD_LIB_VPX", "libvpx");
     enable!(configure, "BUILD_LIB_WAVPACK", "libwavpack");
     enable!(configure, "BUILD_LIB_WEBP", "libwebp");
-    enable!(configure, "BUILD_LIB_X264", "libx264");
-    enable!(configure, "BUILD_LIB_X265", "libx265");
+    enable_lib!(configure, "BUILD_LIB_X264", "libx264", "x264");
+    enable_lib!(configure, "BUILD_LIB_X265", "libx265", "x265");
     enable!(configure, "BUILD_LIB_AVS", "libavs");
     enable!(configure, "BUILD_LIB_XVID", "libxvid");
 
@@ -350,8 +375,12 @@ fn build() -> io::Result<()> {
 
         if let Ok(s) = env::var(ENV_NAME) {
             for piece in s.split(',') {
-                let arg = piece.trim();
-                configure.arg(arg);
+                if let Some((arg, lib)) = piece.split_once(':') {
+                    configure.arg(arg.trim());
+                    link_lib(lib);
+                } else {
+                    configure.arg(piece.trim());
+                }
             }
         }
 
