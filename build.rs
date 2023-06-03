@@ -345,6 +345,19 @@ fn build() -> io::Result<()> {
     // configure misc build options
     enable!(configure, "BUILD_PIC", "pic");
 
+    {
+        const ENV_NAME: &str = "FFMPEG_SYS_NEXT_CONFIGURE_ARGS";
+
+        if let Ok(s) = env::var(ENV_NAME) {
+            for piece in s.split(',') {
+                let arg = piece.trim();
+                configure.arg(arg);
+            }
+        }
+
+        println!("cargo:rerun-if-env-changed={}", ENV_NAME);
+    }
+
     // run ./configure
     let output = configure
         .output()
