@@ -667,6 +667,58 @@ fn link_to_libraries(statik: bool) {
     }
 }
 
+fn check_additional_libs(base: PathBuf) -> io::Result<()> {
+    let config_mak = base.join("config.mak");
+    let file = File::open(config_mak)?;
+    let reader = BufReader::new(file);
+    let extra_linker_args = reader
+        .lines()
+        .filter_map(|line| {
+            let line = line.as_ref().ok()?;
+
+            if line.starts_with("EXTRALIBS") {
+                Some(
+                    line.split('=')
+                        .last()
+                        .unwrap()
+                        .split(' ')
+                        .map(|s| s.to_string())
+                        .collect::<Vec<_>>(),
+                )
+            } else {
+                None
+            }
+        })
+        .flatten()
+        .collect::<Vec<_>>();
+
+    extra_linker_args
+        .iter()
+        .filter(|flag| flag.starts_with("-l"))
+        .map(|lib| &lib[2..])
+        .for_each(|lib| println!("cargo:rustc-link-lib={}", lib));
+
+    extra_linker_args
+        .iter()
+        .filter(|v| v.starts_with("-L"))
+        .map(|flag| {
+            let path = &flag[2..];
+            if path.starts_with('/') {
+                PathBuf::from(path)
+            } else {
+                source().join(path)
+            }
+        })
+        .for_each(|lib_search_path| {
+            println!(
+                "cargo:rustc-link-search=native={}",
+                lib_search_path.to_str().unwrap()
+            );
+        });
+
+    Ok(())
+}
+
 fn main() {
     let statik = env::var("CARGO_FEATURE_STATIC").is_ok();
     let ffmpeg_major_version: u32 = env!("CARGO_PKG_VERSION_MAJOR").parse().unwrap();
@@ -684,55 +736,7 @@ fn main() {
         }
 
         // Check additional required libraries.
-        {
-            let config_mak = source().join("ffbuild/config.mak");
-            let file = File::open(config_mak).unwrap();
-            let reader = BufReader::new(file);
-            let extra_linker_args = reader
-                .lines()
-                .filter_map(|line| {
-                    let line = line.as_ref().ok()?;
-
-                    if line.starts_with("EXTRALIBS") {
-                        Some(
-                            line.split('=')
-                                .last()
-                                .unwrap()
-                                .split(' ')
-                                .map(|s| s.to_string())
-                                .collect::<Vec<_>>(),
-                        )
-                    } else {
-                        None
-                    }
-                })
-                .flatten()
-                .collect::<Vec<_>>();
-
-            extra_linker_args
-                .iter()
-                .filter(|flag| flag.starts_with("-l"))
-                .map(|lib| &lib[2..])
-                .for_each(|lib| println!("cargo:rustc-link-lib={}", lib));
-
-            extra_linker_args
-                .iter()
-                .filter(|v| v.starts_with("-L"))
-                .map(|flag| {
-                    let path = &flag[2..];
-                    if path.starts_with('/') {
-                        PathBuf::from(path)
-                    } else {
-                        source().join(path)
-                    }
-                })
-                .for_each(|lib_search_path| {
-                    println!(
-                        "cargo:rustc-link-search=native={}",
-                        lib_search_path.to_str().unwrap()
-                    );
-                })
-        }
+        check_additional_libs(source().join("ffbuild")).unwrap();
 
         vec![search().join("include")]
     }
@@ -766,6 +770,7 @@ fn main() {
                 ffmpeg_dir.join("lib").to_string_lossy()
             );
         }
+        _ = check_additional_libs(ffmpeg_dir.clone());
         link_to_libraries(statik);
         vec![ffmpeg_dir.join("include")]
     } else if let Some(paths) = try_vcpkg(statik) {
